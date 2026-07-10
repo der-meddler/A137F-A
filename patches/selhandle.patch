@@ -1,0 +1,8 @@
+--- a/security/selinux/selinuxfs.c
++++ b/security/selinux/selinuxfs.c
+@@ -XXXX,X +XXXX,X @@
+-static const struct file_operations sel_handle_status_ops = {
++const struct file_operations sel_handle_status_ops = {
+	.open		= sel_open_handle_status,
+	.read		= sel_read_handle_status,
+	.mmap		= sel_mmap_handle_status,

@@ -1,0 +1,7 @@
+--- a/security/selinux/selinuxfs.c
++++ b/security/selinux/selinuxfs.c
+@@ -XXXX,X +XXXX,X @@
+-static ssize_t (*write_op[])(struct file *, char *, size_t) = {
++ssize_t (*write_op[])(struct file *, char *, size_t) = {
+	[SEL_ACCESS] = sel_write_access,
+	[SEL_CREATE] = sel_write_create,
