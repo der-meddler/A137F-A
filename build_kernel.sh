@@ -4,6 +4,7 @@
 export CROSS_COMPILE=$(pwd)/toolchain/toolchains-gcc-10.3.0/bin/aarch64-buildroot-linux-gnu-
 export CC=$(pwd)/toolchain/clang/host/linux-x86/clang-r383902/bin/clang
 export CLANG_TRIPLE=aarch64-linux-gnu-
+export ANDROID_MAJOR_VERSION=r
 export ARCH=arm64
 
 export KCFLAGS=-w
