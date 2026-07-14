@@ -9,7 +9,7 @@ export ARCH=arm64
 export KCFLAGS=-w
 export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 export CONFIG_DRV_BUILD_IN=Y
-make -C $(pwd) O=$(pwd)/out KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y a13ve_defconfig droidspaces.config scamsung.config droidspaces_opt.config
+make -C $(pwd) O=$(pwd)/out KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y a13ve_defconfig droidspaces.config scamsung.config droidspaces_opt.config ksu.config
 make -C $(pwd) O=$(pwd)/out KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y -j$(nproc)
 
 cp out/arch/arm64/boot/Image $(pwd)/arch/arm64/boot/Image
