@@ -16,12 +16,15 @@ mkdir -p $(pwd)/out
 echo "=== [1/6] Generating base defconfig ==="
 make -C $(pwd) O=$(pwd)/out a13ve_defconfig
 
-echo "=== [2/6] Force-merging config fragments ==="
-# This physically appends your custom configs to the bottom of the active config
-cat droidspaces.config scamsung.config droidspaces_opt.config ksu.config >> $(pwd)/out/.config
+echo "=== [2/6] Force-merging config fragments from arch/arm64/configs/ ==="
+# Pulling the configs from their actual subdirectory so they don't get skipped
+cat arch/arm64/configs/droidspaces.config \
+    arch/arm64/configs/scamsung.config \
+    arch/arm64/configs/droidspaces_opt.config \
+    arch/arm64/configs/ksu.config >> $(pwd)/out/.config
 
 echo "=== [3/6] Validating final configuration ==="
-# This forces the kernel to read the appended configs, resolve dependencies, and lock them in
+# This forces the kernel to process the appended options and drop the old tracepoints
 make -C $(pwd) O=$(pwd)/out olddefconfig
 
 echo "=== [4/6] Cleaning build directory ==="
