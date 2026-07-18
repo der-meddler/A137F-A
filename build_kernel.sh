@@ -25,6 +25,7 @@ echo "=== [2/7] Force-merging config fragments ==="
 cat arch/arm64/configs/droidspaces.config \
     arch/arm64/configs/scamsung.config \
     arch/arm64/configs/droidspaces_opt.config \
+    arch/arm64/configs/modules_fix.config \
     arch/arm64/configs/ksu.config >> $(pwd)/out/.config
 
 echo "=== [3/7] Validating final configuration ==="
