@@ -1,3 +1,6 @@
 [submodule "KernelSU"]
 	path = KernelSU
 	url = https://github.com/der-meddler/ReSukiSU-pers-fork
+[submodule "drivers/misc/mediatek/connectivity"]
+	path = drivers/misc/mediatek/connectivity
+	url = git@github.com:der-meddler/A137F-connectivity.git
