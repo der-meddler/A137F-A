@@ -18,28 +18,22 @@ mkdir -p $(pwd)/out
 mkdir -p $(pwd)/out/modules_dist
 mkdir -p $(pwd)/out/modules_flat
 
-echo "=== [1/7] Generating base defconfig ==="
-make -C $(pwd) O=$(pwd)/out a13ve_defconfig
+echo "=== [1/6] Generating base defconfig ==="
+make -C $(pwd) O=$(pwd)/out allinone.config
 
-echo "=== [2/7] Force-merging config fragments ==="
-cat arch/arm64/configs/droidspaces.config \
-    arch/arm64/configs/scamsung.config \
-    arch/arm64/configs/droidspaces_opt.config \
-    arch/arm64/configs/ksu.config >> $(pwd)/out/.config
-
-echo "=== [3/7] Validating final configuration ==="
+echo "=== [2/6] Validating final configuration ==="
 make -C $(pwd) O=$(pwd)/out olddefconfig
 
-echo "=== [4/7] Cleaning build directory ==="
+echo "=== [3/6] Cleaning build directory ==="
 make -C $(pwd) O=$(pwd)/out clean
 rm -rf $(pwd)/out/modules_dist/*
 rm -rf $(pwd)/out/modules_flat/*
 
-echo "=== [5/7] Starting compilation (Kernel Image & Modules) ==="
+echo "=== [4/6] Starting compilation (Kernel Image & Modules) ==="
 # This compiles both the Image and all configured .ko modules
 make -C $(pwd) O=$(pwd)/out -j$(nproc)
 
-echo "=== [6/7] Extracting, Stripping, and Organizing Modules ==="
+echo "=== [5/6] Extracting, Stripping, and Organizing Modules ==="
 # 1. Install all compiled modules to our temporary staging directory
 make -C $(pwd) O=$(pwd)/out INSTALL_MOD_PATH=$(pwd)/out/modules_dist modules_install
 
@@ -51,7 +45,7 @@ find $(pwd)/out/modules_dist -name "*.ko" -exec $STRIP_TOOL --strip-unneeded {} 
 echo "Collecting modules..."
 find $(pwd)/out/modules_dist -name "*.ko" -exec cp {} $(pwd)/out/modules_flat/ \;
 
-echo "=== [7/7] Copying final kernel Image ==="
+echo "=== [6/6] Copying final kernel Image ==="
 cp out/arch/arm64/boot/Image $(pwd)/arch/arm64/boot/Image
 
 echo "=== Build Process Finished Successfully! ==="
