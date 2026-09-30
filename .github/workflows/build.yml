@@ -22,7 +22,7 @@ jobs:
       RELEASE: ${{ !startsWith(github.ref_name, 'build-') }}
     steps:
       - name: Check build dependencies
-        run: dpkg -s build-essential bc bison flex libssl-dev perl cpio xz-utils gzip zip git > /dev/null
+        run: dpkg -s build-essential bc bison flex libssl-dev perl xz-utils gzip zip git > /dev/null
 
       - name: Checkout kernel
         uses: actions/checkout@v7
