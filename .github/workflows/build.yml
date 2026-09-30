@@ -1,0 +1,89 @@
+name: Build kernel
+
+# Only tags start a build, plain pushes don't:
+#   build-<anything>  test build, zip uploaded to Namespace only
+#   any other tag     build + GitHub release with the zip attached
+on:
+  push:
+    tags: ['**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  build:
+    # Namespace runner profile (Linux amd64, the in-repo toolchain is x86-64 only),
+    # build packages are baked into its custom image via APT packages
+    runs-on: namespace-profile-android-kernel
+    timeout-minutes: 90
+    permissions:
+      contents: write # publishing the release
+    env:
+      RELEASE: ${{ !startsWith(github.ref_name, 'build-') }}
+    steps:
+      - name: Check build dependencies
+        run: dpkg -s build-essential bc bison flex libssl-dev perl cpio xz-utils gzip zip git > /dev/null
+
+      - name: Checkout kernel
+        uses: actions/checkout@v7
+        with:
+          path: kernel
+          submodules: recursive
+          persist-credentials: false
+
+      # ReSukiSU's version is the KernelSU commit count, a shallow submodule would report a far too old one
+      - name: Fetch full KernelSU history
+        working-directory: kernel
+        run: |
+          if [ "$(git -C KernelSU rev-parse --is-shallow-repository)" = true ]; then
+            git -C KernelSU fetch --unshallow --tags origin
+          fi
+          echo "KernelSU commits: $(git -C KernelSU rev-list --count HEAD)"
+
+      - name: Checkout AnyKernel3
+        uses: actions/checkout@v7
+        with:
+          repository: der-meddler/AK3-osm0sis
+          ref: a137f
+          path: ak3
+          persist-credentials: false
+
+      - name: Build kernel
+        working-directory: kernel
+        run: bash -e build_kernel.sh
+
+      - name: Pack AnyKernel3 zip
+        id: pack
+        run: |
+          id=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-} # tags may contain / which can't go in file or artifact names
+          # point the source line shown while flashing at the exact release tag or commit
+          if [ "$RELEASE" = true ]; then
+            sed -i "s|^Branch: .*|Tag: $id|" ak3/version
+          else
+            sed -i "s|^Branch: .*|Commit: ${GITHUB_SHA::8}|" ak3/version
+          fi
+          mkdir -p dist
+          ak3/pack.sh kernel/out/arch/arm64/boot/Image.gz "dist/A137F-ReSukiSU-$id.zip"
+          echo "name=A137F-ReSukiSU-$id" >> "$GITHUB_OUTPUT"
+
+      # Stored in Namespace, not GitHub: download it from the job in the Namespace dashboard
+      - name: Upload zip to Namespace
+        uses: namespace-actions/upload-artifact@f6ccaacc655aec41b93af180d1d7eef21af862d2 # v1.0.3
+        with:
+          name: ${{ steps.pack.outputs.name }}
+          path: dist/*.zip
+          if-no-files-found: error
+          compression-level: 0 # already a zip
+          retention-days: 30
+          overwrite: true
+
+      - name: Publish release
+        if: env.RELEASE == 'true'
+        # pinned to a commit like the upload action: this job's token can replace release assets
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: dist/*.zip
+          fail_on_unmatched_files: true
+          body: |
+            Flash with TWRP or the ReSukiSU manager.
+            Kernel source: https://github.com/${{ github.repository }}/tree/${{ github.ref_name }}
