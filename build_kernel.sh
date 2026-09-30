@@ -9,6 +9,11 @@ export ARCH=arm64
 export KCFLAGS=-w
 export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 export CONFIG_DRV_BUILD_IN=Y
+
+# allinone.config gets merged into an existing .config, so seed one on fresh checkouts
+mkdir -p out
+[ -f out/.config ] || cp arch/arm64/configs/allinone.config out/.config
+
 make -C $(pwd) O=$(pwd)/out KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y allinone.config
 make -C $(pwd) O=$(pwd)/out KCFLAGS=-w CONFIG_SECTION_MISMATCH_WARN_ONLY=y -j$(nproc)
 
