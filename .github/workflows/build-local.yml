@@ -38,6 +38,9 @@ jobs:
           submodules: recursive
           persist-credentials: false
           clean: ${{ env.RELEASE == 'true' || contains(github.ref_name, 'clean') }}
+          # full history: a depth-1 fetch into the existing shallow clone resends the whole
+          # 1.3 GB tree every run, with history only the new commits get fetched
+          fetch-depth: 0
 
       # ReSukiSU's version is the KernelSU commit count, a shallow submodule would report a far too old one
       - name: Fetch full KernelSU history
