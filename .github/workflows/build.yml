@@ -13,8 +13,7 @@ concurrency:
 
 jobs:
   build:
-    # Namespace runner profile (Linux amd64, the in-repo toolchain is x86-64 only),
-    # build packages are baked into its custom image via APT packages
+    # Namespace runner profile (Linux amd64, the in-repo toolchain is x86-64 only)
     runs-on: namespace-profile-android-kernel
     timeout-minutes: 90
     permissions:
@@ -22,8 +21,14 @@ jobs:
     env:
       RELEASE: ${{ !startsWith(github.ref_name, 'build-') }}
     steps:
-      - name: Check build dependencies
-        run: dpkg -s build-essential bc bison flex libssl-dev perl xz-utils gzip zip git > /dev/null
+      # works with the profile's custom image (nothing to do) and the stock Ubuntu image (only bc is missing)
+      - name: Install missing build dependencies
+        run: |
+          pkgs="build-essential bc bison flex libssl-dev perl xz-utils gzip zip git"
+          if ! dpkg -s $pkgs > /dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends $pkgs
+          fi
 
       - name: Checkout kernel
         uses: actions/checkout@v7
