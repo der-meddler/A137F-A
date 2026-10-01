@@ -1,8 +1,9 @@
 name: Build kernel (local)
 
 # local- tags build on the self-hosted CachyOS runner instead of Namespace:
-#   local-build-<anything>  test build, zip uploaded as a workflow artifact
-#   any other local- tag    build + GitHub release with the zip attached
+#   local-build-<anything>  incremental test build, zip uploaded as a workflow artifact
+#                           (a tag name containing "clean" forces a full rebuild)
+#   any other local- tag    clean build + GitHub release with the zip attached
 # Only tag commits that contain this file: older commits run the Namespace workflow instead.
 on:
   push:
@@ -29,12 +30,14 @@ jobs:
       - name: Remove stale submodule locks
         run: find kernel/.git/modules -name '*.lock' -type f -delete 2>/dev/null || true
 
+      # test builds keep out/ from the previous run so make only rebuilds what changed
       - name: Checkout kernel
         uses: actions/checkout@v7
         with:
           path: kernel
           submodules: recursive
           persist-credentials: false
+          clean: ${{ env.RELEASE == 'true' || contains(github.ref_name, 'clean') }}
 
       # ReSukiSU's version is the KernelSU commit count, a shallow submodule would report a far too old one
       - name: Fetch full KernelSU history
