@@ -1,29 +1,33 @@
-name: Build kernel
+name: Build kernel (local)
 
-# Only tags start a build, plain pushes don't:
-#   build-<anything>  test build, zip uploaded to Namespace only
-#   any other tag     build + GitHub release with the zip attached
-# local- tags are left to the self-hosted runner, see build-local.yml
+# local- tags build on the self-hosted CachyOS runner instead of Namespace:
+#   local-build-<anything>  test build, zip uploaded as a workflow artifact
+#   any other local- tag    build + GitHub release with the zip attached
+# Only tag commits that contain this file: older commits run the Namespace workflow instead.
 on:
   push:
-    tags: ['**', '!local-**']
+    tags: ['local-**']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   build:
-    # Namespace runner profile (Linux amd64, the in-repo toolchain is x86-64 only),
-    # build packages are baked into its custom image via APT packages
-    runs-on: namespace-profile-android-kernel
-    timeout-minutes: 90
+    # runner registered with: config.sh --labels cachyos
+    runs-on: [self-hosted, cachyos]
+    timeout-minutes: 120
     permissions:
       contents: write # publishing the release
     env:
-      RELEASE: ${{ !startsWith(github.ref_name, 'build-') }}
+      RELEASE: ${{ !startsWith(github.ref_name, 'local-build-') }}
     steps:
+      # the runner service has no sudo, missing packages have to be installed on the host
       - name: Check build dependencies
-        run: dpkg -s build-essential bc bison flex libssl-dev perl xz-utils gzip zip git > /dev/null
+        run: pacman -T base-devel bc bison flex openssl perl xz gzip zip git
+
+      # a cancelled run can leave git locks in the persistent workspace that checkout doesn't clean
+      - name: Remove stale submodule locks
+        run: find kernel/.git/modules -name '*.lock' -type f -delete 2>/dev/null || true
 
       - name: Checkout kernel
         uses: actions/checkout@v7
@@ -65,27 +69,26 @@ jobs:
           else
             sed -i "s|^Branch: .*|Commit: ${GITHUB_SHA::8}|" ak3/version
           fi
+          # the workspace persists on a self-hosted runner, don't pick up zips from earlier runs
           rm -rf dist && mkdir dist
           ak3/pack.sh kernel/out/arch/arm64/boot/Image.gz "dist/A137F-ReSukiSU-$id.zip"
-          echo "name=A137F-ReSukiSU-$id" >> "$GITHUB_OUTPUT"
+          echo "zip=dist/A137F-ReSukiSU-$id.zip" >> "$GITHUB_OUTPUT"
 
-      # Stored in Namespace, not GitHub: download it from the job in the Namespace dashboard
-      - name: Upload zip to Namespace
-        uses: namespace-actions/upload-artifact@f6ccaacc655aec41b93af180d1d7eef21af862d2 # v1.0.3
+      # uploaded as the flashable zip itself (no extra zip around it), download with gh run download
+      - name: Upload zip
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.pack.outputs.name }}
-          path: dist/*.zip
+          path: ${{ steps.pack.outputs.zip }}
+          archive: false
           if-no-files-found: error
-          compression-level: 0 # already a zip
-          retention-days: 30
           overwrite: true
 
       - name: Publish release
         if: env.RELEASE == 'true'
-        # pinned to a commit like the upload action: this job's token can replace release assets
+        # pinned to a commit: this job's token can replace release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: dist/*.zip
+          files: ${{ steps.pack.outputs.zip }}
           fail_on_unmatched_files: true
           body: |
             Flash with TWRP or the ReSukiSU manager.
