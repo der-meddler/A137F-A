@@ -15,13 +15,13 @@ jobs:
   build:
     # Namespace runner profile (Linux amd64, the in-repo toolchain is x86-64 only)
     runs-on: namespace-profile-android-kernel
-    timeout-minutes: 90
+    timeout-minutes: 20 # a build takes ~2 min, this only caps the bill of a hung job
     permissions:
       contents: write # publishing the release
     env:
       RELEASE: ${{ !startsWith(github.ref_name, 'build-') }}
     steps:
-      # works with the profile's custom image (nothing to do) and the stock Ubuntu image (only bc is missing)
+      # the profile uses Namespace's stock Ubuntu image, which only lacks bc
       - name: Install missing build dependencies
         run: |
           pkgs="build-essential bc bison flex libssl-dev perl xz-utils gzip zip git"
