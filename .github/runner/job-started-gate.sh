@@ -1,5 +1,5 @@
 #!/bin/bash
-# Job-started hook for the self-hosted CachyOS runner, installed root-owned to
+# Job-started hook for the self-hosted runner (Droidspaces arch container), installed root-owned to
 # /etc/github-actions/job-started-gate.sh. It refuses every job except local-
 # tag builds of build-local.yml in this repo, so an approved fork PR workflow
 # can't run on (or tamper with) this machine. Exiting non-zero fails the job.

@@ -1,6 +1,6 @@
 name: Build kernel (local)
 
-# local- tags build on the self-hosted CachyOS runner instead of Namespace:
+# local- tags build on the self-hosted runner in the Droidspaces arch container instead of Namespace:
 #   local-build-<anything>  incremental test build, zip uploaded as a workflow artifact
 #                           (a tag name containing "clean" forces a full rebuild)
 #   any other local- tag    clean build + GitHub release with the zip attached
@@ -14,8 +14,8 @@ concurrency:
 
 jobs:
   build:
-    # runner registered with: config.sh --labels cachyos
-    runs-on: [self-hosted, cachyos]
+    # runner registered inside the container with: config.sh --labels droidspaces
+    runs-on: [self-hosted, droidspaces]
     timeout-minutes: 120
     permissions:
       contents: write # publishing the release
