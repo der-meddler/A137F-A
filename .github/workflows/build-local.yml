@@ -1,13 +1,22 @@
 name: Build kernel (local)
 
-# local- tags build on the self-hosted runner in the Droidspaces arch container instead of Namespace:
-#   local-build-<anything>  incremental test build, zip uploaded as a workflow artifact
-#                           (a tag name containing "clean" forces a full rebuild)
-#   any other local- tag    clean build + GitHub release with the zip attached
+# Builds on the self-hosted runner in the Droidspaces arch container instead of Namespace. Triggers:
+#   push local-build-<anything> tag  incremental test build, zip uploaded as a workflow artifact
+#                                    (a tag name containing "clean" forces a full rebuild)
+#   push any other local- tag        clean build + GitHub release with the zip attached
+#   Run workflow (manual dispatch)   incremental test build of the chosen branch, no release
+#                                    (tick "clean" to force a full rebuild)
 # Only tag commits that contain this file: older commits run the Namespace workflow instead.
+# Manual dispatch also needs this file on the default branch (main), or the button won't appear.
 on:
   push:
     tags: ['local-**']
+  workflow_dispatch:
+    inputs:
+      clean:
+        description: Force a full clean rebuild (ignore the cached out/ tree)
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,7 +29,8 @@ jobs:
     permissions:
       contents: write # publishing the release
     env:
-      RELEASE: ${{ !startsWith(github.ref_name, 'local-build-') }}
+      # dispatch runs are always test builds; only a non-local-build- tag push makes a release
+      RELEASE: ${{ github.event_name == 'push' && !startsWith(github.ref_name, 'local-build-') }}
     steps:
       # the runner service has no sudo, missing packages have to be installed on the host
       - name: Check build dependencies
@@ -37,7 +47,7 @@ jobs:
           path: kernel
           submodules: recursive
           persist-credentials: false
-          clean: ${{ env.RELEASE == 'true' || contains(github.ref_name, 'clean') }}
+          clean: ${{ env.RELEASE == 'true' || contains(github.ref_name, 'clean') || inputs.clean }}
           # full history: a depth-1 fetch into the existing shallow clone resends the whole
           # 1.3 GB tree every run, with history only the new commits get fetched
           fetch-depth: 0
