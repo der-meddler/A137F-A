@@ -1,0 +1,23 @@
+name: Build kernel (local)
+
+# Dispatch-only copy on the default branch so the Actions "Run workflow" button exists at all.
+# Real builds run the SELECTED branch's own build-local.yml (resukisu / resukisu-nethunter). This
+# main copy has NO tag trigger, so no tag ever builds on main; picking "main" in "Use workflow from"
+# just prints a reminder instead of building.
+on:
+  workflow_dispatch:
+    inputs:
+      clean:
+        description: Force a full clean rebuild (ignore the cached out/ tree)
+        type: boolean
+        default: false
+
+jobs:
+  info:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick a feature branch
+        run: |
+          echo "This builds the ReSukiSU kernel from a feature branch."
+          echo "In 'Use workflow from', choose resukisu or resukisu-nethunter - not main."
+          echo "main carries this file only so the Run workflow button appears."
