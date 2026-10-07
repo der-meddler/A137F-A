@@ -1,0 +1,118 @@
+name: Clean up old artifacts
+
+# Deletes old workflow artifacts (the A137F-ReSukiSU-*.zip test builds build-local.yml uploads) so
+# they stop piling up until GitHub's own 90-day expiry. Artifacts belong to the repository, not to a
+# branch, so one run cleans up after every branch. Triggers:
+#   schedule                 every Sunday 03:17 UTC with the defaults below: anything older than 7
+#                            days goes, except the newest zip of each name, which is always kept.
+#                            GitHub only runs cron from the default branch (main); the copies of this
+#                            file on the other branches never fire on their own
+#   Run workflow (dispatch)  any branch, with the age / keep / dry-run knobs adjustable per run.
+#                            Needs the file on main for the button to appear, like build-local.yml
+on:
+  schedule:
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      older_than_days:
+        description: Delete artifacts created more than this many days ago
+        type: number
+        default: 7
+      keep_latest:
+        description: Always keep this many newest artifacts of each name, however old (0 keeps none)
+        type: number
+        default: 1
+      dry_run:
+        description: Only list what would be deleted
+        type: boolean
+        default: false
+
+# never two cleanups at once; a second one just waits for the first
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write # listing and deleting artifacts
+    steps:
+      - name: Delete old artifacts
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // dispatch inputs arrive as strings; a cron run has none and uses the defaults
+            const inputs = context.payload.inputs ?? {};
+            const olderThanDays = Number(inputs.older_than_days ?? 7);
+            const keepLatest = Number(inputs.keep_latest ?? 1);
+            const dryRun = String(inputs.dry_run ?? false) === 'true';
+            if (![olderThanDays, keepLatest].every((n) => Number.isInteger(n) && n >= 0))
+              throw new Error(`older_than_days and keep_latest must be whole numbers >= 0, got "${inputs.older_than_days}" and "${inputs.keep_latest}"`);
+
+            const { owner, repo } = context.repo;
+            const now = Date.now();
+            const dayMs = 24 * 60 * 60 * 1000;
+            const cutoff = now - olderThanDays * dayMs;
+            const mb = (bytes) => (bytes / 1048576).toFixed(1);
+            const ageDays = (a) => ((now - Date.parse(a.created_at)) / dayMs).toFixed(1);
+            const branch = (a) => a.workflow_run?.head_branch ?? '';
+
+            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, per_page: 100 });
+            // expired artifacts are already gone from storage, only their metadata lingers
+            const live = all.filter((a) => !a.expired);
+            core.info(`${all.length} artifacts listed, ${live.length} not expired`);
+
+            const byName = new Map();
+            for (const a of live) (byName.get(a.name) ?? byName.set(a.name, []).get(a.name)).push(a);
+
+            // newest first within each name: the first keepLatest survive regardless of age
+            const doomed = [], kept = [];
+            for (const list of byName.values()) {
+              list.sort((x, y) => Date.parse(y.created_at) - Date.parse(x.created_at));
+              list.forEach((a, i) => {
+                if (i < keepLatest) kept.push([a, `newest ${i + 1} of its name`]);
+                else if (Date.parse(a.created_at) > cutoff) kept.push([a, `only ${ageDays(a)} days old`]);
+                else doomed.push(a);
+              });
+            }
+
+            const rows = [];
+            let freed = 0, deleted = 0, failed = 0;
+            for (const a of doomed) {
+              const what = `${a.name} #${a.id} (${mb(a.size_in_bytes)} MB, ${ageDays(a)} days, ${branch(a) || 'branch unknown'})`;
+              if (dryRun) {
+                core.info(`would delete ${what}`);
+                rows.push([a, 'would delete']);
+                freed += a.size_in_bytes;
+                continue;
+              }
+              try {
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: a.id });
+                core.info(`deleted ${what}`);
+                rows.push([a, 'deleted']);
+                freed += a.size_in_bytes;
+                deleted++;
+              } catch (e) {
+                core.warning(`could not delete ${what}: ${e.message}`);
+                rows.push([a, `FAILED: ${e.message}`]);
+                failed++;
+              }
+            }
+            for (const [a, why] of kept) {
+              core.info(`kept ${a.name} #${a.id} (${ageDays(a)} days): ${why}`);
+              rows.push([a, `kept, ${why}`]);
+            }
+
+            const headline = dryRun
+              ? `Dry run: would delete ${doomed.length} of ${live.length} artifacts, ${mb(freed)} MB`
+              : `Deleted ${deleted} of ${live.length} artifacts, ${mb(freed)} MB freed` + (failed ? `, ${failed} failed` : '');
+            await core.summary
+              .addHeading(headline, 3)
+              .addRaw(`Older than ${olderThanDays} days, keeping the newest ${keepLatest} of each name.`, true)
+              .addTable([
+                ['Artifact', 'Age (days)', 'MB', 'Branch', 'Result'].map((data) => ({ data, header: true })),
+                ...rows.map(([a, result]) => [a.name, ageDays(a), mb(a.size_in_bytes), branch(a), result]),
+              ])
+              .write();
+            if (failed) core.setFailed(`${failed} artifact(s) could not be deleted`);
