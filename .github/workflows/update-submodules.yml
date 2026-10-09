@@ -32,9 +32,9 @@ concurrency:
 
 jobs:
   bump:
-    # runner registered inside the Droidspaces container, like build-local.yml. Nothing is built
-    # or checked out here, so ubuntu-latest would do the same job if the container is off a lot
-    runs-on: [self-hosted, droidspaces]
+    # GitHub-hosted on purpose: the self-hosted runner's job-started gate only admits
+    # build-local.yml, and this job checks out nothing, so the container has nothing to offer it
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write # creating the bump commits and moving the branches
