@@ -1,0 +1,154 @@
+name: Update submodules
+
+# Replaces the daily "git submodule update --remote && git add && git commit && git push" chore.
+# Nothing is cloned: for every branch below the job reads .gitmodules, looks up the tip of each
+# submodule's tracked branch (the one named in .gitmodules, else the submodule repo's default
+# branch) and, where a pin is behind, writes a commit through the Git Data API that moves the
+# gitlink and fast-forwards the branch. Branches without .gitmodules (main) are skipped. Triggers:
+#   schedule                 daily 04:23 UTC for resukisu and resukisu-nethunter. Cron only fires
+#                            from the default branch (main), so main's copy of this file is the one
+#                            that runs; the copies on the other branches are inert
+#   Run workflow (dispatch)  any time, with the branch list and a dry-run switch. The ref picked in
+#                            the dispatch dialog does not matter, the branches come from the input
+# Commits are authored by github-actions[bot] with the usual "update submodule" subject and a body
+# naming each submodule and its old..new range. A push made with the workflow token never starts
+# other workflows, and builds are tag-triggered anyway, so a bump never builds by itself.
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+    inputs:
+      branches:
+        description: Branches to bump, separated by spaces
+        type: string
+        default: resukisu resukisu-nethunter
+      dry_run:
+        description: Only report which pins are behind
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  bump:
+    # runner registered inside the Droidspaces container, like build-local.yml. Nothing is built
+    # or checked out here, so ubuntu-latest would do the same job if the container is off a lot
+    runs-on: [self-hosted, droidspaces]
+    timeout-minutes: 10
+    permissions:
+      contents: write # creating the bump commits and moving the branches
+    steps:
+      - name: Bump submodule pins
+        uses: actions/github-script@v9
+        with:
+          script: |
+            // dispatch inputs arrive as strings; a cron run has none and uses the defaults
+            const inputs = context.payload.inputs ?? {};
+            const branches = String(inputs.branches ?? 'resukisu resukisu-nethunter').split(/[\s,]+/).filter(Boolean);
+            const dryRun = String(inputs.dry_run ?? false) === 'true';
+            const { owner, repo } = context.repo;
+            const bot = { name: 'github-actions[bot]', email: '41898282+github-actions[bot]@users.noreply.github.com' };
+            const short = (sha) => sha.slice(0, 9);
+
+            // .gitmodules text -> [{ name, path, url, branch? }]
+            const parseGitmodules = (text) => {
+              const subs = [];
+              let cur;
+              for (const raw of text.split('\n')) {
+                const line = raw.trim();
+                const head = line.match(/^\[submodule\s+"(.+)"\]$/);
+                if (head) { cur = { name: head[1] }; subs.push(cur); continue; }
+                const kv = cur && line.match(/^(\w+)\s*=\s*(.+)$/);
+                if (kv) cur[kv[1]] = kv[2].trim();
+              }
+              return subs.filter((s) => s.path && s.url);
+            };
+            // https://github.com/o/r[.git] or git@github.com:o/r[.git] -> { owner, repo }
+            const parseRepo = (url) => {
+              const m = url.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+              if (!m) throw new Error(`submodule url is not on github.com: ${url}`);
+              return { owner: m[1], repo: m[2] };
+            };
+            // tip of the submodule's tracked branch, looked up once per repo@branch
+            const tips = new Map();
+            const tipOf = async (sub) => {
+              const r = parseRepo(sub.url);
+              const branch = sub.branch || (await github.rest.repos.get(r)).data.default_branch;
+              const key = `${r.owner}/${r.repo}@${branch}`;
+              if (!tips.has(key)) {
+                const { data } = await github.rest.repos.getBranch({ ...r, branch });
+                tips.set(key, { ...r, branch, sha: data.commit.sha });
+              }
+              return tips.get(key);
+            };
+
+            const rows = [];
+            for (const branch of branches) {
+              let headSha;
+              try {
+                headSha = (await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` })).data.object.sha;
+              } catch (e) {
+                if (e.status !== 404) throw e;
+                core.warning(`${branch}: no such branch`);
+                rows.push([branch, '', '', '', 'no such branch']);
+                continue;
+              }
+
+              let subs;
+              try {
+                const { data } = await github.rest.repos.getContent({ owner, repo, path: '.gitmodules', ref: headSha });
+                subs = parseGitmodules(Buffer.from(data.content, 'base64').toString());
+              } catch (e) {
+                if (e.status !== 404) throw e;
+                core.info(`${branch}: no .gitmodules, skipped`);
+                rows.push([branch, '', '', '', 'no .gitmodules']);
+                continue;
+              }
+
+              const bumps = [];
+              for (const sub of subs) {
+                const { data } = await github.rest.repos.getContent({ owner, repo, path: sub.path, ref: headSha });
+                if (data.type !== 'submodule') {
+                  core.warning(`${branch}: ${sub.path} is a ${data.type}, not a submodule`);
+                  continue;
+                }
+                const tip = await tipOf(sub);
+                if (data.sha === tip.sha) {
+                  core.info(`${branch}: ${sub.path} already at ${short(tip.sha)} (${tip.branch})`);
+                  rows.push([branch, sub.path, short(data.sha), short(tip.sha), 'up to date']);
+                  continue;
+                }
+                bumps.push({ sub, tip, from: data.sha, to: tip.sha });
+              }
+              if (!bumps.length) continue;
+
+              for (const b of bumps)
+                core.info(`${branch}: ${dryRun ? 'would bump' : 'bumping'} ${b.sub.path} ${short(b.from)} -> ${short(b.to)} (${b.tip.branch})`);
+              if (dryRun) {
+                bumps.forEach((b) => rows.push([branch, b.sub.path, short(b.from), short(b.to), 'would bump']));
+                continue;
+              }
+
+              const message = `update submodule${bumps.length > 1 ? 's' : ''}\n\n` + bumps
+                .map((b) => `${b.sub.path}: ${short(b.from)} -> ${short(b.to)} (${b.tip.branch})\n`
+                  + `https://github.com/${b.tip.owner}/${b.tip.repo}/compare/${b.from}...${b.to}`)
+                .join('\n\n');
+              const baseTree = (await github.rest.git.getCommit({ owner, repo, commit_sha: headSha })).data.tree.sha;
+              const tree = (await github.rest.git.createTree({ owner, repo, base_tree: baseTree,
+                tree: bumps.map((b) => ({ path: b.sub.path, mode: '160000', type: 'commit', sha: b.to })) })).data;
+              const commit = (await github.rest.git.createCommit({ owner, repo, message, tree: tree.sha,
+                parents: [headSha], author: bot, committer: bot })).data;
+              // plain fast-forward: fails instead of overwriting if someone pushed in the meantime
+              await github.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.sha, force: false });
+              core.info(`${branch}: ${short(headSha)} -> ${short(commit.sha)}`);
+              bumps.forEach((b) => rows.push([branch, b.sub.path, short(b.from), short(b.to), `bumped in ${short(commit.sha)}`]));
+            }
+
+            await core.summary
+              .addHeading(`Submodule bumps${dryRun ? ' (dry run)' : ''}`, 3)
+              .addTable([
+                ['Branch', 'Submodule', 'Was', 'Tip', 'Result'].map((data) => ({ data, header: true })),
+                ...rows,
+              ])
+              .write();
