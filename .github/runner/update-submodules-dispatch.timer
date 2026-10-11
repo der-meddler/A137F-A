@@ -1,0 +1,12 @@
+# Timer for update-submodules-dispatch.service, see there for what it is for and how to install it.
+[Unit]
+Description=Bump submodule pins every morning via GitHub Actions
+
+[Timer]
+# same moment the workflow's own cron names; Persistent catches up after the container was down
+OnCalendar=*-*-* 04:23:00 UTC
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

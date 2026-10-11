@@ -5,11 +5,15 @@ name: Update submodules
 # submodule's tracked branch (the one named in .gitmodules, else the submodule repo's default
 # branch) and, where a pin is behind, writes a commit through the Git Data API that moves the
 # gitlink and fast-forwards the branch. Branches without .gitmodules (main) are skipped. Triggers:
-#   schedule                 daily 04:23 UTC for resukisu and resukisu-nethunter. Cron only fires
-#                            from the default branch (main), so main's copy of this file is the one
-#                            that runs; the copies on the other branches are inert
-#   Run workflow (dispatch)  any time, with the branch list and a dry-run switch. The ref picked in
-#                            the dispatch dialog does not matter, the branches come from the input
+#   dispatch from the container  the systemd timer in .github/runner/ (update-submodules-dispatch.*)
+#                                runs `gh workflow run` at 04:23 UTC; that dispatch runs on the
+#                                self-hosted runner (input runner=local) and starts within seconds
+#   schedule                     04:23 UTC as a fallback on ubuntu-latest for when the container is
+#                                down. GitHub fires repo crons hours late (6-7 h seen) and only from
+#                                the default branch (main); it finds nothing to do when the timer
+#                                already bumped. Copies of this file on other branches are inert
+#   Run workflow (dispatch)      any time, with the branch list, a dry-run switch and the runner
+#                                choice. The ref picked in the dialog does not matter
 # Commits are authored by github-actions[bot] with the usual "update submodule" subject and a body
 # naming each submodule and its old..new range. A push made with the workflow token never starts
 # other workflows, and builds are tag-triggered anyway, so a bump never builds by itself.
@@ -26,15 +30,24 @@ on:
         description: Only report which pins are behind
         type: boolean
         default: false
+      runner:
+        description: Where to run (local = the self-hosted runner in the Droidspaces container)
+        type: choice
+        options: [local, github]
+        default: local
 
+# one bump at a time; the cron fallback may evict a dispatch left waiting for an offline runner
 concurrency:
   group: ${{ github.workflow }}
+  cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 jobs:
   bump:
-    # GitHub-hosted on purpose: the self-hosted runner's job-started gate only admits
-    # build-local.yml, and this job checks out nothing, so the container has nothing to offer it
-    runs-on: ubuntu-latest
+    # dispatches default to the self-hosted runner, which picks a job up in seconds where GitHub's
+    # hosted pool makes it wait; cron runs stay on ubuntu-latest so they work with the container down
+    runs-on: >-
+      ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'local'
+      && fromJSON('["self-hosted", "droidspaces"]') || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: write # creating the bump commits and moving the branches
