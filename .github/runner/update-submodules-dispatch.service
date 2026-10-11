@@ -1,0 +1,26 @@
+# Optional companion to update-submodules.yml: GitHub fires a repository cron hours late (6-7 h
+# observed), so this unit, started by update-submodules-dispatch.timer inside the Droidspaces arch
+# container, dispatches the workflow itself at the intended time. It asks for the self-hosted
+# runner when the runner service is up and for ubuntu-latest otherwise, so a run never sits in
+# GitHub's queue waiting for a runner that is down; the late GitHub cron then finds nothing to do.
+# Prerequisite: main's copy of .github/workflows/update-submodules.yml must already have the
+# `runner` input (the dispatch is validated against main), or every firing is rejected with 422.
+# Install (as bigdihh in the container):
+#   sudo install -m 644 -o root -g root .github/runner/update-submodules-dispatch.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now update-submodules-dispatch.timer
+# Test once: sudo systemctl start update-submodules-dispatch.service; sudo journalctl -u update-submodules-dispatch -n 5
+[Unit]
+Description=Dispatch the update-submodules workflow on GitHub
+# the boot-time catch-up (Persistent=) should see the runner listener already up
+After=github-actions.service
+
+[Service]
+Type=oneshot
+# gh runs with this user's login (~/.config/gh/hosts.yml). If gh there keeps the token in a keyring,
+# a service can't reach it: put GH_TOKEN=<fine-grained token, this repo, Actions: write> in the env
+# file (sudo install -m 600 -o root -g root /dev/null /etc/github-actions/dispatch.env; it is read
+# as root before the switch to User=)
+User=bigdihh
+EnvironmentFile=-/etc/github-actions/dispatch.env
+# $$r, not $r: systemd expands $var in ExecStart before sh sees it
+ExecStart=/bin/sh -c 'r=github; systemctl is-active --quiet github-actions.service && r=local; exec /usr/bin/gh workflow run update-submodules.yml --repo der-meddler/A137F-A --ref main -f runner=$$r'
