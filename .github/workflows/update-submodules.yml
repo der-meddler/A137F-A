@@ -1,10 +1,17 @@
 name: Update submodules
 
-# Replaces the daily "git submodule update --remote && git add && git commit && git push" chore.
-# Nothing is cloned: for every branch below the job reads .gitmodules, looks up the tip of each
-# submodule's tracked branch (the one named in .gitmodules, else the submodule repo's default
-# branch) and, where a pin is behind, writes a commit through the Git Data API that moves the
-# gitlink and fast-forwards the branch. Branches without .gitmodules (main) are skipped. Triggers:
+# Replaces the daily "sync the KernelSU fork, git submodule update --remote, add, commit, push"
+# chore. Nothing is cloned. First the forks named in sync_forks are brought up to date with their
+# upstream through GitHub's merge-upstream API (the "Sync fork" button), but only as a fast-forward:
+# a fork branch that has commits of its own is reported and left alone rather than given a merge
+# commit every morning. That needs the FORK_SYNC_TOKEN secret, a fine-grained token with Contents:
+# write AND Workflows: write on the fork (GitHub refuses to merge upstream commits that touch
+# .github/workflows without the latter), because GITHUB_TOKEN cannot write outside this repo;
+# without the secret the step only reports, and a failed sync never skips the bump. Then, for
+# every branch below, the job reads .gitmodules, looks up the tip of each submodule's tracked
+# branch (the one named in .gitmodules, else the submodule repo's default branch) and, where a pin
+# is behind, writes a commit through the Git Data API that moves the gitlink and fast-forwards the
+# branch. Branches without .gitmodules (main) are skipped. Triggers:
 #   dispatch from the container  the systemd timer in .github/runner/ (update-submodules-dispatch.*)
 #                                runs `gh workflow run` at 04:23 UTC; that dispatch runs on the
 #                                self-hosted runner (input runner=local) and starts within seconds
@@ -26,8 +33,12 @@ on:
         description: Branches to bump, separated by spaces
         type: string
         default: resukisu resukisu-nethunter
+      sync_forks:
+        description: Forks to sync with their upstream first, as owner/repo:branch separated by spaces (empty = none)
+        type: string
+        default: der-meddler/ReSukiSU-pers-fork:main
       dry_run:
-        description: Only report which pins are behind
+        description: Only report what would be synced and which pins are behind
         type: boolean
         default: false
       runner:
@@ -52,7 +63,80 @@ jobs:
     permissions:
       contents: write # creating the bump commits and moving the branches
     steps:
+      # runs before the bump so the pin lookup below already sees the fork's new tip. A sync made
+      # with the token counts as a push by its owner, so it does start the fork's own push-triggered
+      # workflows (unlike GITHUB_TOKEN pushes); disable those in the fork if they are unwanted
+      - name: Sync forks with their upstream
+        env:
+          HAVE_TOKEN: ${{ secrets.FORK_SYNC_TOKEN != '' }}
+        uses: actions/github-script@v9
+        with:
+          # the fallback only matters for dry runs and reports, which need read access alone
+          github-token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
+          script: |
+            const inputs = context.payload.inputs ?? {};
+            const forks = String(inputs.sync_forks ?? 'der-meddler/ReSukiSU-pers-fork:main').split(/[\s,]+/).filter(Boolean);
+            const dryRun = String(inputs.dry_run ?? false) === 'true';
+            const haveToken = process.env.HAVE_TOKEN === 'true';
+            if (!forks.length) { core.info('sync_forks is empty, nothing to sync'); return; }
+            if (!haveToken) core.warning('FORK_SYNC_TOKEN is not set: forks are compared but not synced');
+
+            const rows = [];
+            for (const spec of forks) {
+              const m = spec.match(/^([^/\s]+)\/([^:\s]+):(\S+)$/);
+              if (!m) throw new Error(`sync_forks entry "${spec}" is not owner/repo:branch`);
+              const [, owner, repo, branch] = m;
+              const { data: info } = await github.rest.repos.get({ owner, repo });
+              if (!info.fork || !info.parent) {
+                core.warning(`${owner}/${repo} is not a fork, skipped`);
+                rows.push([spec, '', '', 'not a fork']);
+                continue;
+              }
+              const up = { owner: info.parent.owner.login, repo: info.parent.name };
+              // merge-upstream syncs from the upstream branch of the same name (its default branch
+              // when there is none); compare against the same one, base = fork, head = upstream
+              let upBranch = branch;
+              try { await github.rest.repos.getBranch({ ...up, branch }); }
+              catch (e) { if (e.status !== 404) throw e; upBranch = info.parent.default_branch; }
+              const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+                ...up, basehead: `${owner}:${repo}:${branch}...${up.owner}:${upBranch}`, per_page: 1 });
+              const missing = cmp.ahead_by, own = cmp.behind_by;
+              const upstream = `${up.owner}/${up.repo}:${upBranch}`;
+              if (!missing) {
+                core.info(`${spec} is up to date with ${upstream}`);
+                rows.push([spec, upstream, '0', 'up to date']);
+                continue;
+              }
+              if (own) {
+                core.warning(`${spec}: ${missing} commit(s) behind ${upstream} but has ${own} commit(s) of its own; not synced, rebase it by hand`);
+                rows.push([spec, upstream, String(missing), `not synced: fork has ${own} own commit(s)`]);
+                continue;
+              }
+              if (dryRun || !haveToken) {
+                core.info(`${spec}: ${missing} commit(s) behind ${upstream}, would fast-forward`);
+                rows.push([spec, upstream, String(missing), 'would fast-forward']);
+                continue;
+              }
+              try {
+                const { data: r } = await github.rest.repos.mergeUpstream({ owner, repo, branch });
+                core.info(`${spec}: ${r.message}`);
+                rows.push([spec, r.base_branch || upstream, String(missing), `synced (${r.merge_type})`]);
+              } catch (e) {
+                if (e.status === 409) throw new Error(`${spec} conflicts with ${upstream}; sync it by hand`);
+                if (e.status === 422) throw new Error(`${spec} could not be synced with ${upstream}: ${e.message}`);
+                throw e;
+              }
+            }
+            await core.summary
+              .addHeading(`Fork sync${dryRun ? ' (dry run)' : ''}`, 3)
+              .addTable([
+                ['Fork', 'Upstream', 'Behind by', 'Result'].map((data) => ({ data, header: true })),
+                ...rows,
+              ])
+              .write();
+
       - name: Bump submodule pins
+        if: ${{ !cancelled() }} # a fork-sync failure (conflict, token) must not skip the bump
         uses: actions/github-script@v9
         with:
           script: |
