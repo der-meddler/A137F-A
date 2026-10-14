@@ -794,11 +794,6 @@ static void reserve_state_check(struct work_struct *work)
 
 	pr_info("%s +\n", __func__);
 
-	if (usb_restrict == 1) {
-		pr_info("%s usb restrict param is set, disable all USB operations\n", __func__);
-		return;
-	}
-
 #ifndef CONFIG_DISABLE_LOCKSCREEN_USB_RESTRICTION
 	wait_event_interruptible(u_noti->init_delay,
 		(u_noti->lock_state != USB_NOTIFY_INIT_STATE
@@ -2650,11 +2645,6 @@ bool is_blocked(struct otg_notify *n, int type)
 {
 	struct usb_notify *u_notify = NULL;
 	int ret = 0;
-
-	if (usb_restrict == 1) {
-		pr_info("%s cause:usb_restrict\n", __func__);
-		goto end2;
-	}
 
 	if (!n) {
 		pr_err("%s otg_notify is null\n", __func__);
