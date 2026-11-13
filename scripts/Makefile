@@ -28,7 +28,9 @@ HOSTCFLAGS_sortextable.o = -I$(srctree)/tools/include
 HOSTCFLAGS_asn1_compiler.o = -I$(srctree)/include
 HOSTCFLAGS_sign-file.o = $(CRYPTO_CFLAGS)
 HOSTLDLIBS_sign-file = $(CRYPTO_LIBS)
-HOSTCFLAGS_extract-cert.o = $(CRYPTO_CFLAGS)
+# OpenSSL 4 dropped the ENGINE API; with this define its headers provide stubs
+# instead of leaving unresolved references (older OpenSSL ignores the define)
+HOSTCFLAGS_extract-cert.o = $(CRYPTO_CFLAGS) -DOPENSSL_ENGINE_STUBS
 HOSTLDLIBS_extract-cert = $(CRYPTO_LIBS)
 
 always		:= $(hostprogs-y) $(hostprogs-m)
