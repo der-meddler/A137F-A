@@ -5,7 +5,7 @@ name: Update submodules
 # upstream through GitHub's merge-upstream API (the "Sync fork" button), but only as a fast-forward:
 # a fork branch that has commits of its own is reported and left alone rather than given a merge
 # commit every morning. That needs the FORK_SYNC_TOKEN secret, a fine-grained token with Contents:
-# write AND Workflows: write on the fork (GitHub refuses to merge upstream commits that touch
+# write AND Workflows: write on each fork (GitHub refuses to merge upstream commits that touch
 # .github/workflows without the latter), because GITHUB_TOKEN cannot write outside this repo;
 # without the secret the step only reports, and a failed sync never skips the bump. Then, for
 # every branch below, the job reads .gitmodules, looks up the tip of each submodule's tracked
@@ -36,7 +36,8 @@ on:
       sync_forks:
         description: Forks to sync with their upstream first, as owner/repo:branch separated by spaces (empty = none)
         type: string
-        default: der-meddler/ReSukiSU-pers-fork:main
+        # KernelSU first: a fork that fails to sync stops the forks after it (never the bump)
+        default: der-meddler/ReSukiSU-pers-fork:main der-meddler/nomount:master
       dry_run:
         description: Only report what would be synced and which pins are behind
         type: boolean
@@ -75,7 +76,7 @@ jobs:
           github-token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
           script: |
             const inputs = context.payload.inputs ?? {};
-            const forks = String(inputs.sync_forks ?? 'der-meddler/ReSukiSU-pers-fork:main').split(/[\s,]+/).filter(Boolean);
+            const forks = String(inputs.sync_forks ?? 'der-meddler/ReSukiSU-pers-fork:main der-meddler/nomount:master').split(/[\s,]+/).filter(Boolean);
             const dryRun = String(inputs.dry_run ?? false) === 'true';
             const haveToken = process.env.HAVE_TOKEN === 'true';
             if (!forks.length) { core.info('sync_forks is empty, nothing to sync'); return; }
