@@ -4,3 +4,6 @@
 [submodule "drivers/misc/mediatek/connectivity"]
 	path = drivers/misc/mediatek/connectivity
 	url = https://github.com/der-meddler/A137F-conn-rissu.git
+[submodule "NoMount"]
+	path = NoMount
+	url = https://github.com/der-meddler/nomount
