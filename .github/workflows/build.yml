@@ -1,12 +1,26 @@
 name: Build kernel
 
-# Only tags start a build, plain pushes don't:
-#   build-<anything>  test build, zip uploaded to Namespace only
-#   any other tag     build + GitHub release with the zip attached
-# local- tags are left to the self-hosted runner, see build-local.yml
+# Builds on the Namespace runner. Plain pushes never build, only these do:
+#   push build-<anything> tag       test build, zip uploaded to Namespace only
+#   push any other tag              build + GitHub release with the zip attached
+#   Run workflow (manual dispatch)  test build of the chosen branch. Tick "release" for a GitHub
+#                                   release instead: the run creates the tag itself, named by the
+#                                   "tag" box, else <branch>-<commit>
+# local- tags are left to the self-hosted runner (build-local.yml). Every run starts from a fresh
+# checkout, so there is no "clean" option.
+# Manual dispatch also needs this file on the default branch (main), or the button won't appear.
 on:
   push:
     tags: ['**', '!local-**']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a GitHub release with the zip attached
+        type: boolean
+        default: false
+      tag:
+        description: Tag to create for that release (empty = <branch>-<commit>), ignored without "release"
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -19,8 +33,56 @@ jobs:
     permissions:
       contents: write # publishing the release
     env:
-      RELEASE: ${{ !startsWith(github.ref_name, 'build-') }}
+      # a release is a non-build- tag push, or a manual run with "release" ticked
+      RELEASE: ${{ (github.event_name == 'push' && !startsWith(github.ref_name, 'build-')) || inputs.release == true }}
     steps:
+      # A manual release has no tag yet: create it first, so everything after runs exactly as it
+      # does for a pushed tag and a refused or taken tag fails in seconds instead of after the build.
+      # A tag made with the workflow token never starts other workflows, so nothing builds twice.
+      - name: Create the release tag
+        if: env.RELEASE == 'true'
+        uses: actions/github-script@v9
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const refName = context.ref.replace(/^refs\/(heads|tags)\//, '');
+            let tag = refName; // a tag push releases under the pushed tag
+            if (context.eventName !== 'push') {
+              // manual run: the "tag" box, else the tag the run was started from, else <branch>-<commit>
+              tag = (process.env.INPUT_TAG || '').trim()
+                || (context.ref.startsWith('refs/tags/') ? refName
+                  : `${refName.replace(/[^A-Za-z0-9._-]/g, '-')}-${context.sha.slice(0, 8)}`);
+              if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/.test(tag))
+                throw new Error(`"${tag}" can't be used as a tag here: letters, digits and . _ - / only`);
+              let at;
+              try {
+                const { data } = await github.rest.git.getRef({ owner, repo, ref: `tags/${tag}` });
+                // an annotated tag points at a tag object, its commit is one hop further
+                at = data.object.type === 'tag'
+                  ? (await github.rest.git.getTag({ owner, repo, tag_sha: data.object.sha })).data.object.sha
+                  : data.object.sha;
+              } catch (e) {
+                if (e.status !== 404) throw e;
+              }
+              if (at && at !== context.sha)
+                throw new Error(`tag ${tag} already exists on another commit (${at.slice(0, 9)}), choose a new one`);
+              if (at) {
+                core.info(`tag ${tag} already points at this commit`); // a re-run, or a run started from the tag
+              } else {
+                try {
+                  await github.rest.git.createRef({ owner, repo, ref: `refs/tags/${tag}`, sha: context.sha });
+                } catch (e) {
+                  if (e.status !== 403) throw e;
+                  throw new Error(`GitHub refused to let the workflow token create tag ${tag} (403). Push the tag`
+                    + ` instead: git tag ${tag} ${context.sha.slice(0, 9)} && git push origin ${tag}`);
+                }
+                core.info(`created tag ${tag} at ${context.sha.slice(0, 9)}`);
+              }
+            }
+            core.exportVariable('RELEASE_TAG', tag);
+
       # the profile uses Namespace's stock Ubuntu image, which only lacks bc
       - name: Install missing build dependencies
         run: |
@@ -63,7 +125,9 @@ jobs:
       - name: Pack AnyKernel3 zip
         id: pack
         run: |
-          id=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-} # tags may contain / which can't go in file or artifact names
+          # a release is named after its tag, a test build after the branch or tag it was started from
+          ref=${RELEASE_TAG:-$GITHUB_REF_NAME}
+          id=${ref//[^A-Za-z0-9._-]/-} # tags may contain / which can't go in file or artifact names
           # point the source line shown while flashing at the exact release tag or commit
           if [ "$RELEASE" = true ]; then
             sed -i "s|^Branch: .*|Tag: $id|" ak3/version
@@ -90,8 +154,9 @@ jobs:
         # pinned to a commit like the upload action: this job's token can replace release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           files: dist/*.zip
           fail_on_unmatched_files: true
           body: |
             Flash with TWRP or the ReSukiSU manager.
-            Kernel source: https://github.com/${{ github.repository }}/tree/${{ github.ref_name }}
+            Kernel source: https://github.com/${{ github.repository }}/tree/${{ env.RELEASE_TAG }}
