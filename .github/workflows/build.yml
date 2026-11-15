@@ -6,12 +6,12 @@ name: Build kernel
 #   Run workflow (manual dispatch)  test build of the chosen branch. Tick "release" for a GitHub
 #                                   release instead: the run creates the tag itself, named by the
 #                                   "tag" box, else <branch>-<commit>
-# local- tags are left to the self-hosted runner (build-local.yml). Every run starts from a fresh
-# checkout, so there is no "clean" option.
+# local- tags are left to the self-hosted runner (build-local.yml) and github- tags to GitHub's own
+# runner (build-github.yml). Every run starts from a fresh checkout, so there is no "clean" option.
 # Manual dispatch also needs this file on the default branch (main), or the button won't appear.
 on:
   push:
-    tags: ['**', '!local-**']
+    tags: ['**', '!local-**', '!github-**']
   workflow_dispatch:
     inputs:
       release:
