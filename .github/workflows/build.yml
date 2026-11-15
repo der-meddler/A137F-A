@@ -1,0 +1,27 @@
+name: Build kernel
+
+# Dispatch-only copy on the default branch so the Actions "Run workflow" button exists at all.
+# Real builds run the SELECTED branch's own build.yml (resukisu / resukisu-nethunter) on the
+# Namespace runner. This main copy has NO tag trigger, so no tag ever builds on main; picking "main"
+# in "Use workflow from" just prints a reminder instead of building. The inputs mirror the real
+# file's, so the form looks the same whichever branch is selected.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a GitHub release with the zip attached
+        type: boolean
+        default: false
+      tag:
+        description: Tag to create for that release (empty = <branch>-<commit>), ignored without "release"
+        type: string
+
+jobs:
+  info:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick a feature branch
+        run: |
+          echo "This builds the ReSukiSU kernel from a feature branch on the Namespace runner."
+          echo "In 'Use workflow from', choose resukisu or resukisu-nethunter - not main."
+          echo "main carries this file only so the Run workflow button appears."
