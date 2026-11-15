@@ -3,7 +3,8 @@ name: Build kernel (local)
 # Dispatch-only copy on the default branch so the Actions "Run workflow" button exists at all.
 # Real builds run the SELECTED branch's own build-local.yml (resukisu / resukisu-nethunter). This
 # main copy has NO tag trigger, so no tag ever builds on main; picking "main" in "Use workflow from"
-# just prints a reminder instead of building.
+# just prints a reminder instead of building. The inputs mirror the real file's, so the form looks
+# the same whichever branch is selected.
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +12,13 @@ on:
         description: Force a full clean rebuild (ignore the cached out/ tree)
         type: boolean
         default: false
+      release:
+        description: Publish a GitHub release with the zip attached (always a clean rebuild)
+        type: boolean
+        default: false
+      tag:
+        description: Tag to create for that release (empty = <branch>-<commit>), ignored without "release"
+        type: string
 
 jobs:
   info:
