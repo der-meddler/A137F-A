@@ -1,7 +1,7 @@
 name: Clean up old artifacts
 
-# Deletes old workflow artifacts (the A137F-ReSukiSU-*.zip builds that build-local.yml and
-# build-github.yml upload) so they stop piling up until GitHub's own 90-day expiry. Artifacts
+# Deletes old workflow artifacts (the A137F-ReSukiSU-*.zip builds that build.yml, build-local.yml
+# and build-github.yml upload) so they stop piling up until GitHub's own 90-day expiry. Artifacts
 # belong to the repository, not to a branch, so one run cleans up after every branch. Triggers:
 #   schedule                 every Sunday 03:17 UTC with the defaults below: anything older than 7
 #                            days goes, except the newest zip of each name, which is always kept.
