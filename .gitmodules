@@ -7,3 +7,4 @@
 [submodule "NoMount"]
 	path = NoMount
 	url = https://github.com/der-meddler/nomount
+	branch = dev
