@@ -1,7 +1,7 @@
 name: Build kernel
 
 # Builds on the Namespace runner. Plain pushes never build, only these do:
-#   push build-<anything> tag       test build, zip uploaded to Namespace only
+#   push build-<anything> tag       test build, zip uploaded as a workflow artifact
 #   push any other tag              build + GitHub release with the zip attached
 #   Run workflow (manual dispatch)  test build of the chosen branch. Tick "release" for a GitHub
 #                                   release instead: the run creates the tag itself, named by the
@@ -136,26 +136,24 @@ jobs:
           fi
           rm -rf dist && mkdir dist
           ak3/pack.sh kernel/out/arch/arm64/boot/Image.gz "dist/A137F-ReSukiSU-$id.zip"
-          echo "name=A137F-ReSukiSU-$id" >> "$GITHUB_OUTPUT"
+          echo "zip=dist/A137F-ReSukiSU-$id.zip" >> "$GITHUB_OUTPUT"
 
-      # Stored in Namespace, not GitHub: download it from the job in the Namespace dashboard
-      - name: Upload zip to Namespace
-        uses: namespace-actions/upload-artifact@f6ccaacc655aec41b93af180d1d7eef21af862d2 # v1.0.3
+      # uploaded as the flashable zip itself (no extra zip around it), download with gh run download
+      - name: Upload zip
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.pack.outputs.name }}
-          path: dist/*.zip
+          path: ${{ steps.pack.outputs.zip }}
+          archive: false
           if-no-files-found: error
-          compression-level: 0 # already a zip
-          retention-days: 30
           overwrite: true
 
       - name: Publish release
         if: env.RELEASE == 'true'
-        # pinned to a commit like the upload action: this job's token can replace release assets
+        # pinned to a commit: this job's token can replace release assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          files: dist/*.zip
+          files: ${{ steps.pack.outputs.zip }}
           fail_on_unmatched_files: true
           body: |
             Flash with TWRP or the ReSukiSU manager.
