@@ -37,7 +37,7 @@ on:
         description: Forks to sync with their upstream first, as owner/repo:branch separated by spaces (empty = none)
         type: string
         # KernelSU first: a fork that fails to sync stops the forks after it (never the bump)
-        default: der-meddler/ReSukiSU-pers-fork:main der-meddler/nomount:master
+        default: der-meddler/ReSukiSU-pers-fork:main der-meddler/nomount:dev
       dry_run:
         description: Only report what would be synced and which pins are behind
         type: boolean
@@ -76,7 +76,7 @@ jobs:
           github-token: ${{ secrets.FORK_SYNC_TOKEN || github.token }}
           script: |
             const inputs = context.payload.inputs ?? {};
-            const forks = String(inputs.sync_forks ?? 'der-meddler/ReSukiSU-pers-fork:main der-meddler/nomount:master').split(/[\s,]+/).filter(Boolean);
+            const forks = String(inputs.sync_forks ?? 'der-meddler/ReSukiSU-pers-fork:main der-meddler/nomount:dev').split(/[\s,]+/).filter(Boolean);
             const dryRun = String(inputs.dry_run ?? false) === 'true';
             const haveToken = process.env.HAVE_TOKEN === 'true';
             if (!forks.length) { core.info('sync_forks is empty, nothing to sync'); return; }
